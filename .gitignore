@@ -1,0 +1,67 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# PyCharm
+.idea/
+*.iml
+
+# Test and coverage
+.coverage
+.tox/
+.nox/
+.cache/
+pytest_cache/
+htmlcov/
+coverage.xml
+
+# Logs
+*.log
+
+# Local config
+*.env
+.env.*
+*.local
+
+# macOS
+.DS_Store
+
+# Node
+node_modules/
+
+# C build
+*.o
+*.out
+*.obj
+*.exe
+*.dll
+*.pyd
