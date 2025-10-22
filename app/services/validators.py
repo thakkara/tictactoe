@@ -13,7 +13,7 @@ class GameValidator:
 
     def validate_move(self, db: Session, game: Game, player_id: int,
                       row: int, col: int) -> None:
-        """Validate a move is legal."""
+        """Validate a move is legal for any grid size."""
         # Check if game is active
         if game.status != "active":
             if game.status == "completed":
@@ -36,7 +36,11 @@ class GameValidator:
         if game.current_turn != player_id:
             raise NotYourTurn(f"It's not player {player_id}'s turn")
 
-        # Always use get_board() to get a Python list
-        board = game.get_board() if game.board else [[None] * 3 for _ in range(3)]
+        # Validate position bounds for dynamic grid size
+        if not game.is_valid_position(row, col):
+            raise ValueError(f"Position ({row}, {col}) is invalid for {game.grid_size}x{game.grid_size} grid")
+
+        # Check if cell is already occupied
+        board = game.get_board()
         if board[row][col] is not None:
             raise CellOccupied(f"Cell ({row}, {col}) is already occupied")

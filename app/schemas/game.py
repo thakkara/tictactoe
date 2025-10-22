@@ -3,6 +3,8 @@ from typing import List, Optional
 from datetime import datetime
 from enum import Enum
 
+from app.core.game_config import MIN_GRID_SIZE, MAX_GRID_SIZE, DEFAULT_GRID_SIZE
+
 
 class GameStatus(str, Enum):
     WAITING = "waiting"
@@ -12,6 +14,12 @@ class GameStatus(str, Enum):
 
 class GameCreate(BaseModel):
     creator_id: int = Field(..., description="ID of the player creating the game")
+    grid_size: int = Field(
+        DEFAULT_GRID_SIZE, 
+        ge=MIN_GRID_SIZE, 
+        le=MAX_GRID_SIZE, 
+        description=f"Grid size for the game ({MIN_GRID_SIZE}x{MIN_GRID_SIZE} to {MAX_GRID_SIZE}x{MAX_GRID_SIZE})"
+    )
 
 
 class JoinGame(BaseModel):
@@ -20,8 +28,8 @@ class JoinGame(BaseModel):
 
 class MoveCreate(BaseModel):
     player_id: int = Field(..., description="ID of the player making the move")
-    row: int = Field(..., ge=0, le=2, description="Row index (0-2)")
-    col: int = Field(..., ge=0, le=2, description="Column index (0-2)")
+    row: int = Field(..., ge=0, description="Row index (validated against game's grid size)")
+    col: int = Field(..., ge=0, description="Column index (validated against game's grid size)")
 
 
 class MoveResponse(BaseModel):
@@ -42,6 +50,7 @@ class MoveResponse(BaseModel):
 class GameResponse(BaseModel):
     id: int
     status: GameStatus
+    grid_size: int
     players: List[int]
     current_turn: Optional[int]
     board: List[List[Optional[int]]]
@@ -62,6 +71,7 @@ class GameResponse(BaseModel):
 class GameState(BaseModel):
     id: int
     status: GameStatus
+    grid_size: int
     players: List[int]
     current_turn: Optional[int]
     winner_id: Optional[int]

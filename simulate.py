@@ -43,15 +43,20 @@ def main():
 
         print(f"p1 :{p1} p2:{p2}")
 
-        # Create game
+        # Create game (random grid size for variety)
+        grid_size = random.choice([3, 4, 5])  # Mix of different grid sizes
         response = requests.post(
             f"{BASE_URL}/games",
-            json={"creator_id": p1}
+            json={"creator_id": p1, "grid_size": grid_size}
         )
 
         if response.status_code != 200:
+            print(f"Failed to create game: {response.text}")
             continue
-        game_id = response.json()["id"]
+        
+        game_data = response.json()
+        game_id = game_data["id"]
+        grid_size = game_data["grid_size"]
 
         print(f"create response : {game_id}")
         # Player 2 joins
@@ -66,8 +71,8 @@ def main():
         # Play the game
         current_player = p1
         other_player = p2
-        board = [[None for _ in range(3)] for _ in range(3)]
-        available_moves = [(r, c) for r in range(3) for c in range(3)]
+        board = [[None for _ in range(grid_size)] for _ in range(grid_size)]
+        available_moves = [(r, c) for r in range(grid_size) for c in range(grid_size)]
 
         game_ended = False
         while available_moves and not game_ended:
@@ -88,7 +93,7 @@ def main():
                 print(f"making move  response: {response.json()}")
                 board[row][col] = current_player
                 available_moves.remove((row, col))
-
+                
                 # Check if game ended
                 if move_result["game_status"] == "completed":
                     print(f"game ended ")
@@ -99,16 +104,21 @@ def main():
                         stats[winner_id]["wins"] += 1
                         loser = p2 if winner_id == p1 else p1
                         stats[loser]["losses"] += 1
-                        print(f"  Game {game_num + 1}: Player {winner_id} won")
+                        print(f"  Game {game_num + 1} ({grid_size}x{grid_size}): Player {winner_id} won")
                     elif is_draw:
                         stats[p1]["draws"] += 1
                         stats[p2]["draws"] += 1
-                        print(f"  Game {game_num + 1}: Draw")
+                        print(f"  Game {game_num + 1} ({grid_size}x{grid_size}): Draw")
 
                     game_ended = True
                 else:
                     # Switch turns
                     current_player, other_player = other_player, current_player
+            else:
+                print(f"Move failed: {response.text}")
+                # Remove the invalid move and continue
+                available_moves.remove((row, col))
+                continue
 
     # Display results
     print("\n=== Results ===\n")

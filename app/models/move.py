@@ -22,6 +22,7 @@ class Move(Base):
     # Constraints
     __table_args__ = (
         UniqueConstraint('game_id', 'row', 'col', name='unique_game_position'),
-        CheckConstraint('row >= 0 AND row <= 2', name='valid_row'),
-        CheckConstraint('col >= 0 AND col <= 2', name='valid_col'),
+        # Note: row/col bounds are validated at application level based on game's grid_size
+        CheckConstraint('row >= 0', name='valid_row_min'),
+        CheckConstraint('col >= 0', name='valid_col_min'),
     )

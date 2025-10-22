@@ -29,11 +29,14 @@ def create_game(
 
     The creator automatically becomes the first player.
     The game starts in 'waiting' status until a second player joins.
+    Grid size can be specified (3x3 to 10x10, default is 3x3).
     """
     try:
-        return game_service_obj.create_game(db, game.creator_id)
+        return game_service_obj.create_game(db, game.creator_id, game.grid_size)
     except PlayerNotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to create game")
 

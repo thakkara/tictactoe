@@ -96,95 +96,89 @@ class PlayerService:
         }
 
     def get_leaderboard(self, db: Session, sort_by: str = "wins") -> List[dict]:
-        """Get top 3 players by wins or efficiency."""
+        """Get top 3 players by wins or efficiency using optimized caching."""
+        from app.services.leaderboard_cache import LeaderboardCacheManager
+
+        cache_manager = LeaderboardCacheManager(db)
+
+        # Use cached leaderboard with fallback to optimized queries
+        leaderboard_data = cache_manager.get_leaderboard(
+            leaderboard_type=sort_by,
+            limit=3,
+            compute_func=lambda: self._compute_leaderboard_optimized(db, sort_by, 3)
+        )
+
+        # Add rank to results
+        for i, entry in enumerate(leaderboard_data, 1):
+            entry["rank"] = i
+
+        return leaderboard_data
+
+    def _compute_leaderboard_optimized(self, db: Session, sort_by: str, limit: int) -> List[dict]:
+        """Compute leaderboard using denormalized data for maximum performance."""
         if sort_by == "wins":
-            # Subquery for wins
-            wins_subq = db.query(
-                Game.winner_id.label("player_id"),
-                func.count(Game.id).label("wins")
-            ).filter(
-                Game.winner_id.isnot(None)
-            ).group_by(Game.winner_id).subquery()
+            return self._get_wins_leaderboard_optimized(db, limit)
+        elif sort_by == "efficiency":
+            return self._get_efficiency_leaderboard_optimized(db, limit)
+        else:
+            raise ValueError(f"Unknown leaderboard type: {sort_by}")
 
-            # Subquery for total games
-            games_subq = db.query(
-                GamePlayer.player_id,
-                func.count(GamePlayer.game_id).label("total_games")
-            ).join(Game).filter(
-                Game.status == "completed"
-            ).group_by(GamePlayer.player_id).subquery()
-
-            # Main query
-            query = db.query(
-                Player.id,
-                Player.username,
-                func.coalesce(wins_subq.c.wins, 0).label("wins"),
-                func.coalesce(games_subq.c.total_games, 0).label("total_games")
-            ).outerjoin(
-                wins_subq, Player.id == wins_subq.c.player_id
-            ).outerjoin(
-                games_subq, Player.id == games_subq.c.player_id
-            ).filter(
-                func.coalesce(wins_subq.c.wins, 0) > 0
-            ).order_by(
-                desc("wins")
-            ).limit(3)
-
-        else:  # sort by efficiency
-            # Complex query to calculate efficiency
-            # Get moves per winning game for each player
-            efficiency_subq = db.query(
-                Move.player_id,
-                func.count(Move.id).label("move_count"),
-                Game.id.label("game_id")
-            ).join(Game).filter(
-                Game.winner_id == Move.player_id
-            ).group_by(Move.player_id, Game.id).subquery()
-
-            # Average moves per win
-            avg_moves = db.query(
-                efficiency_subq.c.player_id,
-                func.avg(efficiency_subq.c.move_count).label("efficiency"),
-                func.count(efficiency_subq.c.game_id).label("wins")
-            ).group_by(efficiency_subq.c.player_id).subquery()
-
-            query = db.query(
-                Player.id,
-                Player.username,
-                avg_moves.c.wins,
-                avg_moves.c.efficiency
-            ).join(
-                avg_moves, Player.id == avg_moves.c.player_id
-            ).order_by(
-                avg_moves.c.efficiency
-            ).limit(3)
-
-        results = query.all()
+    def _get_wins_leaderboard_optimized(self, db: Session, limit: int) -> List[dict]:
+        """O(log n) wins leaderboard using denormalized total_wins column."""
+        results = db.query(
+            Player.id,
+            Player.username,
+            Player.total_wins
+        ).filter(
+            Player.total_wins > 0
+        ).order_by(
+            Player.total_wins.desc()
+        ).limit(limit).all()
 
         leaderboard = []
-        for i, row in enumerate(results, 1):
-            if sort_by == "wins":
-                win_rate = (row.wins / row.total_games * 100) if row.total_games > 0 else 0
-                entry = {
-                    "rank": i,
-                    "player_id": row.id,
-                    "username": row.username,
-                    "wins": row.wins,
-                    "total_games": row.total_games,
-                    "win_rate": round(win_rate, 2),
-                    "efficiency": None
-                }
-            else:
-                entry = {
-                    "rank": i,
-                    "player_id": row.id,
-                    "username": row.username,
-                    "wins": row.wins,
-                    "total_games": row.wins,  # For efficiency, we only count wins
-                    "win_rate": 100.0,  # All are wins
-                    "efficiency": round(float(row.efficiency), 2)
-                }
-            leaderboard.append(entry)
+        for player_id, username, total_wins in results:
+            # Get total games for win rate calculation
+            total_games = db.query(func.count(GamePlayer.game_id)).filter(
+                GamePlayer.player_id == player_id
+            ).scalar() or 0
+
+            win_rate = (total_wins / total_games * 100) if total_games > 0 else 0
+
+            leaderboard.append({
+                "player_id": player_id,
+                "username": username,
+                "wins": total_wins,
+                "total_games": total_games,
+                "win_rate": round(win_rate, 2),
+                "efficiency": None
+            })
+
+        return leaderboard
+
+    def _get_efficiency_leaderboard_optimized(self, db: Session, limit: int) -> List[dict]:
+        """O(log n) efficiency leaderboard using denormalized efficiency column."""
+        results = db.query(
+            Player.id,
+            Player.username,
+            Player.total_wins,
+            Player.efficiency
+        ).filter(
+            Player.efficiency.isnot(None),
+            Player.total_wins > 0
+        ).order_by(
+            Player.efficiency.asc()  # Lower efficiency is better
+        ).limit(limit).all()
+
+        leaderboard = []
+        for player_id, username, total_wins, efficiency in results:
+            leaderboard.append({
+                "player_id": player_id,
+                "username": username,
+                "wins": total_wins,
+                "total_games": total_wins,  # For efficiency, we only show wins
+                "win_rate": 100.0,  # All counted games are wins
+                "efficiency": round(efficiency, 2)
+            })
 
         return leaderboard
 

@@ -21,14 +21,21 @@ class GameService:
     def __init__(self):
         self.validator = GameValidator()
 
-    def create_game(self, db: Session, creator_id: int) -> Game:
+    def create_game(self, db: Session, creator_id: int, grid_size: int = 3) -> Game:
+        # Validate grid size
+        if not (3 <= grid_size <= 10):
+            raise ValueError(f"Grid size must be between 3 and 10, got {grid_size}")
+            
         player = db.query(Player).filter(Player.id == creator_id).first()
         if not player:
             raise PlayerNotFound(f"Player with ID {creator_id} not found")
 
-        game = Game(status="waiting")
+        game = Game(status="waiting", grid_size=grid_size)
         db.add(game)
         db.flush()
+
+        # Initialize empty board based on grid size
+        game.initialize_empty_board()
 
         game_player = GamePlayer(
             game_id=game.id,
@@ -39,7 +46,7 @@ class GameService:
         db.commit()
         db.refresh(game)
 
-        logger.info(f"Game {game.id} created by player {creator_id}")
+        logger.info(f"Game {game.id} ({grid_size}x{grid_size}) created by player {creator_id}")
         return game
 
     def join_game(self, db: Session, game_id: int, player_id: int) -> Game:
@@ -107,7 +114,7 @@ class GameService:
 
         self.validator.validate_move(db, game, player_id, row, col)
 
-        board = game.get_board() if game.board else [[None] * 3 for _ in range(3)]
+        board = game.get_board()
         board[row][col] = player_id
         game.set_board(board)
 
@@ -129,6 +136,10 @@ class GameService:
             game.winner_id = player_id
             game.ended_at = datetime.now(timezone.utc)
             logger.info(f"Player {player_id} won game {game_id}")
+            
+            # Update player efficiency stats in real-time
+            self._update_winner_stats(db, game)
+            
         elif self._is_board_full(board):
             game.status = "completed"
             game.ended_at = datetime.now(timezone.utc)
@@ -171,7 +182,7 @@ class GameService:
             Move.game_id == game_id
         ).scalar()
 
-        board = game.get_board() if game.board else [[None] * 3 for _ in range(3)]
+        board = game.get_board()
 
         return {
             "id": game.id,
@@ -187,16 +198,27 @@ class GameService:
         }
 
     def _check_win(self, board: List[List[int]], player_id: int) -> bool:
+        """Check if player has won with configurable grid size."""
+        grid_size = len(board)
+        
+        # Check rows
         for row in board:
             if all(cell == player_id for cell in row):
                 return True
-        for col in range(3):
-            if all(board[row][col] == player_id for row in range(3)):
+                
+        # Check columns
+        for col in range(grid_size):
+            if all(board[row][col] == player_id for row in range(grid_size)):
                 return True
-        if all(board[i][i] == player_id for i in range(3)):
+                
+        # Check main diagonal (top-left to bottom-right)
+        if all(board[i][i] == player_id for i in range(grid_size)):
             return True
-        if all(board[i][2 - i] == player_id for i in range(3)):
+            
+        # Check anti-diagonal (top-right to bottom-left)
+        if all(board[i][grid_size - 1 - i] == player_id for i in range(grid_size)):
             return True
+            
         return False
 
     def _is_board_full(self, board: List[List[int]]) -> bool:
@@ -204,6 +226,31 @@ class GameService:
             if None in row:
                 return False
         return True
+        
+    def _update_winner_stats(self, db: Session, game: Game) -> None:
+        """Update winner's efficiency stats in real-time and invalidate caches."""
+        if not game.winner_id:
+            return
+            
+        try:
+            from app.services.player_stats_manager import PlayerStatsManager
+            from app.services.leaderboard_cache import LeaderboardCacheManager
+            
+            # Update denormalized stats
+            stats_manager = PlayerStatsManager(db)
+            stats_manager.on_game_completed(game)
+            
+            # Invalidate leaderboard caches since stats changed
+            cache_manager = LeaderboardCacheManager(db)
+            cache_manager.invalidate_cache("wins")
+            cache_manager.invalidate_cache("efficiency")
+            
+            logger.info(f"Updated stats and invalidated cache for game {game.id} winner {game.winner_id}")
+            
+        except Exception as e:
+            # Don't fail the game completion if stats update fails
+            logger.error(f"Failed to update winner stats for game {game.id}: {e}")
+            # Stats will be corrected by background reconciliation jobs
 
 
 game_service_obj = GameService()
